@@ -237,16 +237,13 @@ class MyHandler(BaseHTTPRequestHandler):
             model_response = self._interactive_running(
                 SHARED.get('opt'), body.decode('utf-8')
             )
-
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            print(type(model_response))
-            print(dir(model_response))
             print("model_response:",model_response)
             json_str = json.dumps({'text':model_response['text'].replace("_POTENTIALLY_UNSAFE__", " ")})
 
-            print("json_str:",json_str)
+            #json_str = json.dumps(model_response.json_safe_payload())
             self.wfile.write(bytes(json_str, 'utf-8'))
         elif self.path == '/reset':
             self.send_response(200)
