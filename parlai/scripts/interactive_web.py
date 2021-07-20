@@ -21,12 +21,41 @@ from parlai.core.worlds import create_task
 from typing import Dict, Any
 from parlai.core.script import ParlaiScript, register_script
 import parlai.utils.logging as logging
+from parlai.agents.local_human.local_human import LocalHumanAgent
 
 import json
 import time
+import mtranslate
 
-HOST_NAME = 'localhost'
-PORT = 8080
+import urllib.parse
+import sys
+import re
+
+def isHangul(text):
+    #Check the Python Version
+    pyVer3 =  sys.version_info >= (3, 0)
+
+    if pyVer3 : # for Ver 3 or later
+        encText = text
+    else: # for Ver 2.x
+        if type(text) is not unicode:
+            encText = text.decode('utf-8')
+        else:
+            encText = text
+
+    hanCount = len(re.findall(u'[\u3130-\u318F\uAC00-\uD7A3]+', encText))
+    return hanCount > 0
+
+
+
+
+
+#HOST_NAME = 'localhost'
+#PORT = 8080
+HOST_NAME = '0.0.0.0'
+PORT = 18030
+
+
 
 SHARED: Dict[Any, Any] = {}
 STYLE_SHEET = "https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.css"
@@ -132,6 +161,7 @@ WEB_HTML = """
                     method: 'POST',
                     body: text
                 }}).then(response=>response.json()).then(data=>{{
+
                     var parDiv = document.getElementById("parent");
 
                     parDiv.append(createChatRow("You", text));
@@ -165,6 +195,16 @@ WEB_HTML = """
 </html>
 """  # noqa: E501
 
+def translate(query):
+
+    query = urllib.parse.unquote(query)
+    to_lan = 'en'
+    from_lan = 'kr'
+    to_query = mtranslate.translate(query, to_lan, from_lan).replace(" ", "_")
+    return to_query.replace("_", " ")
+
+
+
 
 class MyHandler(BaseHTTPRequestHandler):
     """
@@ -172,6 +212,8 @@ class MyHandler(BaseHTTPRequestHandler):
     """
 
     def _interactive_running(self, opt, reply_text):
+        if isHangul(reply_text):
+            reply_text = translate(reply_text)
         reply = {'episode_done': False, 'text': reply_text}
         SHARED['agent'].observe(reply)
         model_res = SHARED['agent'].act()
@@ -199,7 +241,12 @@ class MyHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            json_str = json.dumps(model_response)
+            print(type(model_response))
+            print(dir(model_response))
+            print("model_response:",model_response)
+            json_str = json.dumps({'text':model_response['text'].replace("_POTENTIALLY_UNSAFE__", " ")})
+
+            print("json_str:",json_str)
             self.wfile.write(bytes(json_str, 'utf-8'))
         elif self.path == '/reset':
             self.send_response(200)
@@ -274,7 +321,12 @@ def interactive_web(opt):
     agent.opt.log()
     SHARED['opt'] = agent.opt
     SHARED['agent'] = agent
-    SHARED['world'] = create_task(SHARED.get('opt'), SHARED['agent'])
+    # SHARED['world'] = create_task(SHARED.get('opt'), SHARED['agent'])
+
+    human_agent = LocalHumanAgent(opt)
+    world_logger = WorldLogger(opt) if opt.get('outfile') else None
+
+    SHARED['world'] = create_task(opt, [human_agent, agent])
 
     MyHandler.protocol_version = 'HTTP/1.0'
     httpd = HTTPServer((opt['host'], opt['port']), MyHandler)
